@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#14532d"/>
+      <stop offset="100%" style="stop-color:#0f1117"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#22c55e"/>
+      <stop offset="100%" style="stop-color:#16a34a"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <!-- Parrot body -->
+  <ellipse cx="256" cy="300" rx="90" ry="110" fill="url(#body)"/>
+  <!-- Parrot head -->
+  <circle cx="256" cy="185" r="75" fill="url(#body)"/>
+  <!-- Eye white -->
+  <circle cx="278" cy="175" r="18" fill="white"/>
+  <!-- Eye -->
+  <circle cx="282" cy="175" r="11" fill="#0f1117"/>
+  <!-- Eye shine -->
+  <circle cx="285" cy="172" r="4" fill="white"/>
+  <!-- Beak -->
+  <path d="M256 200 Q295 215 285 235 Q265 230 256 200Z" fill="#fbbf24"/>
+  <path d="M256 200 Q228 210 232 228 Q248 225 256 200Z" fill="#f59e0b"/>
+  <!-- Wing left -->
+  <ellipse cx="175" cy="295" rx="45" ry="80" fill="#16a34a" transform="rotate(-20 175 295)"/>
+  <!-- Wing right -->
+  <ellipse cx="337" cy="295" rx="45" ry="80" fill="#15803d" transform="rotate(20 337 295)"/>
+  <!-- Tail -->
+  <path d="M220 390 Q256 460 292 390 Q270 405 256 400 Q242 405 220 390Z" fill="#4ade80"/>
+  <!-- Feet -->
+  <path d="M230 405 L215 430 M230 405 L225 432 M230 405 L235 432" stroke="#fbbf24" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M282 405 L267 430 M282 405 L277 432 M282 405 L287 432" stroke="#fbbf24" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <!-- Cheek patch -->
+  <circle cx="300" cy="195" r="20" fill="#fbbf24" opacity="0.5"/>
+  <!-- Head crest -->
+  <path d="M240 115 Q256 85 272 115" stroke="#4ade80" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <circle cx="256" cy="80" r="8" fill="#4ade80"/>
+</svg>
