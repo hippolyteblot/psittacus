@@ -20,6 +20,7 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
   const [selectedChar, setSelectedChar] = useState<string>("");
   const [speechRate, setSpeechRate] = useState(1);
   const [speechLang, setSpeechLang] = useState("fr-FR");
+  const [textOnly, setTextOnly] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -67,9 +68,13 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
   function handleStart() {
     if (!script || !selectedChar) return;
     saveSettings({ defaultSpeechRate: speechRate, defaultSpeechLang: speechLang });
-    router.push(
-      `/scripts/${id}/rehearse?character=${encodeURIComponent(selectedChar)}&rate=${speechRate}&lang=${encodeURIComponent(speechLang)}`
-    );
+    const params = new URLSearchParams({
+      character: selectedChar,
+      rate: String(speechRate),
+      lang: speechLang,
+      textOnly: textOnly ? "1" : "0",
+    });
+    router.push(`/scripts/${id}/rehearse?${params.toString()}`);
   }
 
   if (!script || !settings) {
@@ -190,8 +195,39 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
             {/* Paramètres */}
             <div className="space-y-3">
               <p className="text-sm font-medium text-surface-800">Paramètres de lecture</p>
+
+              {/* Mode selector */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setTextOnly(false)}
+                  className={[
+                    "flex flex-col items-center gap-1.5 py-3 px-3 rounded-xl border text-sm font-medium transition-all",
+                    !textOnly
+                      ? "bg-parrot-500/20 border-parrot-500/50 text-parrot-300 shadow-lg shadow-parrot-500/10"
+                      : "bg-surface-200 border-surface-300/40 text-surface-600 hover:border-surface-400/60",
+                  ].join(" ")}
+                >
+                  <span className="text-xl">🔊</span>
+                  <span>Vocal + micro</span>
+                  <span className="text-xs opacity-70 font-normal">TTS &amp; reconnaissance</span>
+                </button>
+                <button
+                  onClick={() => setTextOnly(true)}
+                  className={[
+                    "flex flex-col items-center gap-1.5 py-3 px-3 rounded-xl border text-sm font-medium transition-all",
+                    textOnly
+                      ? "bg-parrot-500/20 border-parrot-500/50 text-parrot-300 shadow-lg shadow-parrot-500/10"
+                      : "bg-surface-200 border-surface-300/40 text-surface-600 hover:border-surface-400/60",
+                  ].join(" ")}
+                >
+                  <span className="text-xl">📖</span>
+                  <span>Texte seul</span>
+                  <span className="text-xs opacity-70 font-normal">Lecture manuelle</span>
+                </button>
+              </div>
+
               <Card>
-                <div className="space-y-4">
+                <div className={["space-y-4 transition-opacity", textOnly ? "opacity-40 pointer-events-none select-none" : ""].join(" ")}>
                   {/* Vitesse */}
                   <div>
                     <div className="flex justify-between mb-2">
@@ -208,6 +244,7 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
                       value={speechRate}
                       onChange={(e) => setSpeechRate(Number(e.target.value))}
                       className="w-full accent-parrot-500"
+                      tabIndex={textOnly ? -1 : 0}
                     />
                     <div className="flex justify-between text-xs text-surface-500 mt-1">
                       <span>Lent</span>
@@ -221,6 +258,7 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
                       value={speechLang}
                       onChange={(e) => setSpeechLang(e.target.value)}
                       className="w-full bg-surface-300/50 border border-surface-400/30 rounded-xl px-4 h-10 text-surface-900 text-sm focus:outline-none focus:border-parrot-500/60"
+                      tabIndex={textOnly ? -1 : 0}
                     >
                       <option value="fr-FR">Français</option>
                       <option value="en-US">English (US)</option>

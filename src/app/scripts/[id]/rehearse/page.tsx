@@ -62,6 +62,7 @@ function RehearsePage({ id }: { id: string }) {
   const character = searchParams.get("character") ?? "";
   const rate = parseFloat(searchParams.get("rate") ?? "1");
   const lang = searchParams.get("lang") ?? "fr-FR";
+  const textOnly = searchParams.get("textOnly") === "1";
 
   const [script, setScript] = useState<Script | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -76,8 +77,9 @@ function RehearsePage({ id }: { id: string }) {
   const sttRef = useRef<STTRecognizer | null>(null);
   const settings = getSettings();
 
-  const ttsAvailable = isTTSAvailable();
-  const sttAvailable = isSTTAvailable();
+  // In text-only mode we intentionally bypass both TTS and STT
+  const ttsAvailable = !textOnly && isTTSAvailable();
+  const sttAvailable = !textOnly && isSTTAvailable();
 
   // ── Load voices & script ──────────────────────────────────────────────────
 
@@ -325,9 +327,16 @@ function RehearsePage({ id }: { id: string }) {
             <span className="text-xs text-surface-600 font-medium truncate">
               {script.title}
             </span>
-            <span className="text-xs text-surface-500 shrink-0 ml-2">
-              {currentIdx + 1} / {totalLines}
-            </span>
+            <div className="flex items-center gap-2 shrink-0 ml-2">
+              {textOnly && (
+                <span className="text-xs bg-surface-300/60 text-surface-600 px-2 py-0.5 rounded-full">
+                  📖 texte
+                </span>
+              )}
+              <span className="text-xs text-surface-500">
+                {currentIdx + 1} / {totalLines}
+              </span>
+            </div>
           </div>
           <div className="h-1.5 bg-surface-200 rounded-full overflow-hidden">
             <div
@@ -369,6 +378,7 @@ function RehearsePage({ id }: { id: string }) {
           <UserActionArea
             phase={phase}
             sttAvailable={sttAvailable}
+            textOnly={textOnly}
             noSTTRevealed={noSTTRevealed}
             onStartListening={startListening}
             onReveal={() => setNoSTTRevealed(true)}
@@ -565,6 +575,7 @@ function SpeakingIndicator() {
 function UserActionArea({
   phase,
   sttAvailable,
+  textOnly,
   noSTTRevealed,
   onStartListening,
   onReveal,
@@ -573,21 +584,25 @@ function UserActionArea({
 }: {
   phase: Phase;
   sttAvailable: boolean;
+  textOnly: boolean;
   noSTTRevealed: boolean;
   onStartListening: () => void;
   onReveal: () => void;
   onNoSTTAdvance: () => void;
   onSkip: () => void;
 }) {
-  // ── No STT flow ────────────────────────────────────────────────────────────
+  // ── Text-only or no-STT flow ───────────────────────────────────────────────
   if (!sttAvailable) {
     return (
       <div className="flex flex-col items-center gap-4">
-        <div className="text-xs text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5 text-center leading-relaxed max-w-xs">
-          🎙️ Reconnaissance vocale indisponible.
-          <br />
-          Lisez votre réplique à voix haute.
-        </div>
+        {/* Only show the warning banner when STT is missing unexpectedly */}
+        {!textOnly && (
+          <div className="text-xs text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5 text-center leading-relaxed max-w-xs">
+            🎙️ Reconnaissance vocale indisponible sur ce navigateur.
+            <br />
+            Lisez votre réplique à voix haute.
+          </div>
+        )}
 
         {!noSTTRevealed ? (
           <Button
