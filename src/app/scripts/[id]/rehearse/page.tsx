@@ -167,15 +167,16 @@ function RehearsePage({ id }: { id: string }) {
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let safetyTimer: ReturnType<typeof setTimeout> | null = null;
 
     if (!isUserLine) {
       setPhase("speaking");
 
       const onDone = () => {
         if (cancelled) return;
-        timer = setTimeout(() => {
-          if (!cancelled) advance();
-        }, 450);
+        cancelled = true; // prevent safety timer from also firing
+        if (safetyTimer) clearTimeout(safetyTimer);
+        timer = setTimeout(() => advance(), 450);
       };
 
       if (ttsAvailable) {
@@ -185,8 +186,20 @@ function RehearsePage({ id }: { id: string }) {
           onEnd: onDone,
           onError: onDone,
         });
+
+        // Safety net: some browsers (Chrome Android, some WebViews) silently
+        // drop `onend` events — especially with many short utterances in a row.
+        // Estimate an upper bound based on text length and force-advance if
+        // we exceeded it, so the script never gets stuck.
+        const estMs =
+          Math.max(1800, currentLine.text.length * 90) / Math.max(rate, 0.5) + 2500;
+        safetyTimer = setTimeout(() => {
+          if (cancelled) return;
+          console.warn("TTS safety timeout — forcing advance");
+          onDone();
+        }, estMs);
       }
-      // No TTS: phase stays "speaking" → manual "Continuer" button is shown
+      // No TTS: phase stays "speaking" → tap anywhere or "Continuer →" button
     } else {
       setPhase("waiting");
     }
@@ -194,9 +207,7 @@ function RehearsePage({ id }: { id: string }) {
     return () => {
       cancelled = true;
       if (timer !== null) clearTimeout(timer);
-      // Only cancel ongoing speech — don't call stopSpeaking() unconditionally
-      // because the cleanup also runs when deps haven't really "changed"
-      // (StrictMode double-invoke). Cancel is enough to prevent double-advance.
+      if (safetyTimer !== null) clearTimeout(safetyTimer);
       if (!isUserLine && ttsAvailable) stopSpeaking();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -269,10 +280,39 @@ function RehearsePage({ id }: { id: string }) {
     speak(currentLine.text, { rate, lang });
   }
 
+  // ── Tap-anywhere-to-advance ───────────────────────────────────────────────
+  // Triggered by clicking the main area (not the dialog card or action widgets).
+  function handleAreaTap() {
+    // Don't interrupt active listening / success animation / hint interaction
+    if (phase === "listening" || phase === "success" || phase === "hint") return;
+    if (phase === "complete") return;
+
+    if (!isUserLine) {
+      // Other character's line — tap always advances (skips remaining TTS)
+      stopSpeaking();
+      advance();
+      return;
+    }
+
+    // User's line — behavior depends on whether STT is in play
+    if (!sttAvailable) {
+      // Text-only / fallback: reveal first, then advance
+      if (!noSTTRevealed) setNoSTTRevealed(true);
+      else advance();
+      return;
+    }
+
+    // STT mode, user's turn: tap outside dialog = skip (mic button stays primary)
+    advance();
+  }
+
   function stopAll() {
     stopSpeaking();
     sttRef.current?.abort();
-    router.push(`/scripts/${id}`);
+    // Use replace so the rehearsal page doesn't stay in history — otherwise
+    // pressing "back" from the config page would take the user back to the
+    // rehearsal instead of the library.
+    router.replace(`/scripts/${id}`);
   }
 
   useEffect(() => {
@@ -294,7 +334,7 @@ function RehearsePage({ id }: { id: string }) {
       <CompleteScreen
         script={script}
         character={character}
-        onBack={() => router.push(`/scripts/${id}`)}
+        onBack={() => router.replace(`/scripts/${id}`)}
       />
     );
   }
@@ -354,50 +394,71 @@ function RehearsePage({ id }: { id: string }) {
         character={character}
       />
 
-      {/* ── Main area ───────────────────────────────────────────────────── */}
-      <div className="flex-1 px-4 flex flex-col gap-4 justify-center pb-6">
-        <CurrentLineCard
-          line={currentLine}
-          isUserLine={isUserLine}
-          phase={phase}
-          transcript={transcript}
-          hintShown={hintShown}
-          noSTTRevealed={noSTTRevealed}
-          ttsAvailable={ttsAvailable}
-          sttAvailable={sttAvailable}
-          onReplay={replayTTS}
-          onManualAdvance={
-            !isUserLine && phase === "speaking" && !ttsAvailable
-              ? advance
-              : undefined
-          }
-        />
-
-        {/* User action zone */}
-        {isUserLine && phase !== "success" && phase !== "hint" && (
-          <UserActionArea
+      {/* ── Main area — tap anywhere outside the dialog to advance ──────── */}
+      <div
+        className="flex-1 px-4 flex flex-col gap-4 justify-center pb-6 cursor-pointer select-none"
+        onClick={handleAreaTap}
+        role="button"
+        tabIndex={-1}
+        aria-label="Toucher pour continuer"
+      >
+        {/* The dialog card itself: clicking it should NOT advance (user may
+            want to read it carefully, select text, tap "Rejouer" etc). */}
+        <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
+          <CurrentLineCard
+            line={currentLine}
+            isUserLine={isUserLine}
             phase={phase}
-            sttAvailable={sttAvailable}
-            textOnly={textOnly}
+            transcript={transcript}
+            hintShown={hintShown}
             noSTTRevealed={noSTTRevealed}
-            onStartListening={startListening}
-            onReveal={() => setNoSTTRevealed(true)}
-            onNoSTTAdvance={advance}
-            onSkip={advance}
+            ttsAvailable={ttsAvailable}
+            sttAvailable={sttAvailable}
+            onReplay={replayTTS}
+            onManualAdvance={
+              !isUserLine && phase === "speaking" && !ttsAvailable
+                ? advance
+                : undefined
+            }
           />
+        </div>
+
+        {/* User action zone — buttons inside need their own click handlers */}
+        {isUserLine && phase !== "success" && phase !== "hint" && (
+          <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
+            <UserActionArea
+              phase={phase}
+              sttAvailable={sttAvailable}
+              textOnly={textOnly}
+              noSTTRevealed={noSTTRevealed}
+              onStartListening={startListening}
+              onReveal={() => setNoSTTRevealed(true)}
+              onNoSTTAdvance={advance}
+              onSkip={advance}
+            />
+          </div>
         )}
 
-        {/* Hint card (after 2 failed attempts) */}
+        {/* Hint card */}
         {phase === "hint" && (
-          <HintCard
-            line={currentLine}
-            onRetry={() => {
-              setHintShown(false);
-              setNoSTTRevealed(false);
-              setPhase("waiting");
-            }}
-            onSkip={advance}
-          />
+          <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
+            <HintCard
+              line={currentLine}
+              onRetry={() => {
+                setHintShown(false);
+                setNoSTTRevealed(false);
+                setPhase("waiting");
+              }}
+              onSkip={advance}
+            />
+          </div>
+        )}
+
+        {/* Subtle hint at the bottom when tapping advances */}
+        {(phase === "speaking" || (phase === "waiting" && (!sttAvailable || noSTTRevealed))) && (
+          <p className="text-center text-xs text-surface-500/70 mt-auto pointer-events-none">
+            Touchez l&apos;écran pour continuer
+          </p>
         )}
       </div>
     </main>
