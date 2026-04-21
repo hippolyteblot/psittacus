@@ -20,7 +20,8 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
   const [selectedChar, setSelectedChar] = useState<string>("");
   const [speechRate, setSpeechRate] = useState(1);
   const [speechLang, setSpeechLang] = useState("fr-FR");
-  const [textOnly, setTextOnly] = useState(false);
+  const [textOnly, setTextOnly] = useState(true);
+  const [perfectMode, setPerfectMode] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -33,9 +34,16 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
     const cfg = getSettings();
     setScript(s);
     setSettings(cfg);
-    setSelectedChar(s.characters[0] ?? "");
+    // Per-script preference: remember last played character, fallback to first
+    const preferred =
+      s.lastCharacter && s.characters.includes(s.lastCharacter)
+        ? s.lastCharacter
+        : s.characters[0] ?? "";
+    setSelectedChar(preferred);
     setSpeechRate(cfg.defaultSpeechRate);
     setSpeechLang(cfg.defaultSpeechLang);
+    setTextOnly(cfg.defaultMode === "text");
+    setPerfectMode(cfg.defaultPerfect);
     setEditText(s.rawText);
     setTitleValue(s.title);
   }, [id, router]);
@@ -67,12 +75,21 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
 
   function handleStart() {
     if (!script || !selectedChar) return;
-    saveSettings({ defaultSpeechRate: speechRate, defaultSpeechLang: speechLang });
+    // Persist preferences — global settings + per-script last character
+    saveSettings({
+      defaultSpeechRate: speechRate,
+      defaultSpeechLang: speechLang,
+      defaultMode: textOnly ? "text" : "vocal",
+      defaultPerfect: perfectMode,
+    });
+    saveScript({ ...script, lastCharacter: selectedChar, updatedAt: Date.now() });
+
     const params = new URLSearchParams({
       character: selectedChar,
       rate: String(speechRate),
       lang: speechLang,
       textOnly: textOnly ? "1" : "0",
+      perfect: perfectMode ? "1" : "0",
     });
     router.push(`/scripts/${id}/rehearse?${params.toString()}`);
   }
@@ -196,21 +213,8 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
             <div className="space-y-3">
               <p className="text-sm font-medium text-surface-800">Paramètres de lecture</p>
 
-              {/* Mode selector */}
+              {/* Mode selector — text first (default), vocal marked beta */}
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setTextOnly(false)}
-                  className={[
-                    "flex flex-col items-center gap-1.5 py-3 px-3 rounded-xl border text-sm font-medium transition-all",
-                    !textOnly
-                      ? "bg-parrot-500/20 border-parrot-500/50 text-parrot-300 shadow-lg shadow-parrot-500/10"
-                      : "bg-surface-200 border-surface-300/40 text-surface-600 hover:border-surface-400/60",
-                  ].join(" ")}
-                >
-                  <span className="text-xl">🔊</span>
-                  <span>Vocal + micro</span>
-                  <span className="text-xs opacity-70 font-normal">TTS &amp; reconnaissance</span>
-                </button>
                 <button
                   onClick={() => setTextOnly(true)}
                   className={[
@@ -224,7 +228,59 @@ export default function ScriptConfigPage({ params }: { params: Promise<{ id: str
                   <span>Texte seul</span>
                   <span className="text-xs opacity-70 font-normal">Lecture manuelle</span>
                 </button>
+                <button
+                  onClick={() => setTextOnly(false)}
+                  className={[
+                    "relative flex flex-col items-center gap-1.5 py-3 px-3 rounded-xl border text-sm font-medium transition-all",
+                    !textOnly
+                      ? "bg-parrot-500/20 border-parrot-500/50 text-parrot-300 shadow-lg shadow-parrot-500/10"
+                      : "bg-surface-200 border-surface-300/40 text-surface-600 hover:border-surface-400/60",
+                  ].join(" ")}
+                >
+                  <span className="absolute top-1.5 right-1.5 text-[9px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded-full">
+                    Bêta
+                  </span>
+                  <span className="text-xl">🔊</span>
+                  <span>Vocal + micro</span>
+                  <span className="text-xs opacity-70 font-normal">TTS &amp; reconnaissance</span>
+                </button>
               </div>
+
+              {/* Perfect mode toggle */}
+              <button
+                onClick={() => setPerfectMode(!perfectMode)}
+                className={[
+                  "w-full flex items-center gap-3 py-3 px-4 rounded-xl border text-left transition-all",
+                  perfectMode
+                    ? "bg-amber-500/10 border-amber-500/40 shadow-lg shadow-amber-500/5"
+                    : "bg-surface-200 border-surface-300/40 hover:border-surface-400/60",
+                ].join(" ")}
+              >
+                <span className="text-2xl shrink-0">✨</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={["text-sm font-semibold", perfectMode ? "text-amber-300" : "text-surface-800"].join(" ")}>
+                      Mode Perfect
+                    </span>
+                  </div>
+                  <p className="text-xs text-surface-600 mt-0.5 leading-snug">
+                    Auto-évaluation après chaque réplique. Si raté, on reprend la scène du début.
+                  </p>
+                </div>
+                <div
+                  className={[
+                    "relative w-10 h-6 rounded-full transition-colors shrink-0",
+                    perfectMode ? "bg-amber-500" : "bg-surface-400/60",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all",
+                      perfectMode ? "left-[1.125rem]" : "left-0.5",
+                    ].join(" ")}
+                  />
+                </div>
+              </button>
 
               <Card>
                 <div className={["space-y-4 transition-opacity", textOnly ? "opacity-40 pointer-events-none select-none" : ""].join(" ")}>

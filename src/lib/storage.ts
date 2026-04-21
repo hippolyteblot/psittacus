@@ -119,6 +119,8 @@ const DEFAULT_SETTINGS: Settings = {
   showPhoneticHints: false,
   autoAdvance: true,
   comparisonMode: "normal",
+  defaultMode: "text",      // text-only is the most reliable baseline
+  defaultPerfect: false,
 };
 
 export function getSettings(): Settings {

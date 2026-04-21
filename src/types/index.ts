@@ -13,6 +13,8 @@ export interface Script {
   characters: string[];
   createdAt: number;
   updatedAt: number;
+  /** Last character the user rehearsed with — used as default on next launch */
+  lastCharacter?: string;
 }
 
 export interface Session {
@@ -43,6 +45,10 @@ export interface Settings {
   showPhoneticHints: boolean;
   autoAdvance: boolean;
   comparisonMode: "strict" | "normal" | "loose";
+  /** Which mode is preselected on the config screen */
+  defaultMode: "text" | "vocal";
+  /** Whether Perfect mode is preselected */
+  defaultPerfect: boolean;
 }
 
 export type ComparisonResult = "exact" | "close" | "wrong";

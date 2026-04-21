@@ -34,8 +34,10 @@ type Phase =
   | "speaking"    // TTS is reading another character's line
   | "waiting"     // user's turn — waiting for mic press (or reveal click)
   | "listening"   // STT active
-  | "success"     // correct answer
+  | "success"     // correct answer (auto-advances)
   | "hint"        // showing hint after errors
+  | "review"      // Perfect mode: user decides if they succeeded or failed
+  | "restarted"   // Perfect mode: brief feedback when scene restarts
   | "complete";   // script finished
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,6 +65,7 @@ function RehearsePage({ id }: { id: string }) {
   const rate = parseFloat(searchParams.get("rate") ?? "1");
   const lang = searchParams.get("lang") ?? "fr-FR";
   const textOnly = searchParams.get("textOnly") === "1";
+  const perfectMode = searchParams.get("perfect") === "1";
 
   const [script, setScript] = useState<Script | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -73,6 +76,9 @@ function RehearsePage({ id }: { id: string }) {
   const [attempts, setAttempts] = useState(0);
   const [completedLines, setCompletedLines] = useState<number[]>([]);
   const [sessionStart] = useState(Date.now());
+  /** Increments on every Perfect-mode restart — forces the TTS effect to
+   *  re-fire even if we land back on the same line id we were already on. */
+  const [runKey, setRunKey] = useState(0);
 
   const sttRef = useRef<STTRecognizer | null>(null);
   const settings = getSettings();
@@ -156,6 +162,24 @@ function RehearsePage({ id }: { id: string }) {
     setPhase("idle");
   }, [id, character]);
 
+  /** Perfect mode: user failed → reset to beginning of the scene */
+  const restartScene = useCallback(() => {
+    stopSpeaking();
+    sttRef.current?.abort();
+    setTranscript("");
+    setHintShown(false);
+    setNoSTTRevealed(false);
+    setAttempts(0);
+    setCompletedLines([]);
+    setPhase("restarted");
+    // Brief "restarting" feedback, then jump to line 0
+    setTimeout(() => {
+      setCurrentIdx(0);
+      setRunKey((k) => k + 1);
+      setPhase("idle");
+    }, 1000);
+  }, []);
+
   // ── TTS auto-play / waiting setup — triggers only on new line ────────────
   // IMPORTANT: `phase` must NOT be in the deps array.
   // If it were, calling setPhase("speaking") inside the effect would trigger
@@ -211,7 +235,7 @@ function RehearsePage({ id }: { id: string }) {
       if (!isUserLine && ttsAvailable) stopSpeaking();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentLine?.id, isUserLine]);
+  }, [currentLine?.id, isUserLine, runKey]);
 
   // ── STT evaluation ────────────────────────────────────────────────────────
 
@@ -224,6 +248,14 @@ function RehearsePage({ id }: { id: string }) {
     (spoken: string) => {
       const line = currentLineRef.current;
       if (!line) return;
+
+      // In Perfect mode, the user decides — we skip automatic evaluation
+      // and go straight to the review step.
+      if (perfectMode) {
+        updateStats(id, character, { attempts: 1 });
+        setPhase("review");
+        return;
+      }
 
       const result = compareLines(spoken, line.text, settings.comparisonMode);
       const newAttempts = attemptsRef.current + 1;
@@ -245,7 +277,7 @@ function RehearsePage({ id }: { id: string }) {
         }
       }
     },
-    [id, character, settings.comparisonMode, advance]
+    [id, character, settings.comparisonMode, advance, perfectMode]
   );
 
   // ── Mic handlers ──────────────────────────────────────────────────────────
@@ -283,9 +315,17 @@ function RehearsePage({ id }: { id: string }) {
   // ── Tap-anywhere-to-advance ───────────────────────────────────────────────
   // Triggered by clicking the main area (not the dialog card or action widgets).
   function handleAreaTap() {
-    // Don't interrupt active listening / success animation / hint interaction
-    if (phase === "listening" || phase === "success" || phase === "hint") return;
-    if (phase === "complete") return;
+    // Don't interrupt transient / interactive states
+    if (
+      phase === "listening" ||
+      phase === "success" ||
+      phase === "hint" ||
+      phase === "review" ||
+      phase === "restarted" ||
+      phase === "complete"
+    ) {
+      return;
+    }
 
     if (!isUserLine) {
       // Other character's line — tap always advances (skips remaining TTS)
@@ -294,15 +334,24 @@ function RehearsePage({ id }: { id: string }) {
       return;
     }
 
-    // User's line — behavior depends on whether STT is in play
+    // User's line — behavior depends on mode
     if (!sttAvailable) {
-      // Text-only / fallback: reveal first, then advance
-      if (!noSTTRevealed) setNoSTTRevealed(true);
-      else advance();
+      // Text-only / fallback: reveal first, then confirm
+      if (!noSTTRevealed) {
+        setNoSTTRevealed(true);
+        return;
+      }
+      // Revealed: if Perfect mode, go to review; otherwise just advance
+      if (perfectMode) {
+        updateStats(id, character, { attempts: 1 });
+        setPhase("review");
+      } else {
+        advance();
+      }
       return;
     }
 
-    // STT mode, user's turn: tap outside dialog = skip (mic button stays primary)
+    // STT mode on user's line: tap outside dialog = skip
     advance();
   }
 
@@ -367,10 +416,15 @@ function RehearsePage({ id }: { id: string }) {
             <span className="text-xs text-surface-600 font-medium truncate">
               {script.title}
             </span>
-            <div className="flex items-center gap-2 shrink-0 ml-2">
+            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              {perfectMode && (
+                <span className="text-xs bg-amber-500/15 text-amber-300 border border-amber-500/25 px-2 py-0.5 rounded-full font-medium">
+                  ✨ Perfect
+                </span>
+              )}
               {textOnly && (
                 <span className="text-xs bg-surface-300/60 text-surface-600 px-2 py-0.5 rounded-full">
-                  📖 texte
+                  📖
                 </span>
               )}
               <span className="text-xs text-surface-500">
@@ -423,21 +477,32 @@ function RehearsePage({ id }: { id: string }) {
           />
         </div>
 
-        {/* User action zone — buttons inside need their own click handlers */}
-        {isUserLine && phase !== "success" && phase !== "hint" && (
-          <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
-            <UserActionArea
-              phase={phase}
-              sttAvailable={sttAvailable}
-              textOnly={textOnly}
-              noSTTRevealed={noSTTRevealed}
-              onStartListening={startListening}
-              onReveal={() => setNoSTTRevealed(true)}
-              onNoSTTAdvance={advance}
-              onSkip={advance}
-            />
-          </div>
-        )}
+        {/* User action zone (hidden during success, hint, review, restarted) */}
+        {isUserLine &&
+          phase !== "success" &&
+          phase !== "hint" &&
+          phase !== "review" &&
+          phase !== "restarted" && (
+            <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
+              <UserActionArea
+                phase={phase}
+                sttAvailable={sttAvailable}
+                textOnly={textOnly}
+                noSTTRevealed={noSTTRevealed}
+                onStartListening={startListening}
+                onReveal={() => setNoSTTRevealed(true)}
+                onNoSTTAdvance={() => {
+                  if (perfectMode) {
+                    updateStats(id, character, { attempts: 1 });
+                    setPhase("review");
+                  } else {
+                    advance();
+                  }
+                }}
+                onSkip={advance}
+              />
+            </div>
+          )}
 
         {/* Hint card */}
         {phase === "hint" && (
@@ -454,8 +519,35 @@ function RehearsePage({ id }: { id: string }) {
           </div>
         )}
 
+        {/* Perfect-mode review step */}
+        {phase === "review" && (
+          <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
+            <ReviewCard
+              onSuccess={() => {
+                updateStats(id, character, { successes: 1 });
+                setCompletedLines((prev) => [...prev, currentIdxRef.current]);
+                setPhase("success");
+                setTimeout(() => advance(), 800);
+              }}
+              onFail={() => {
+                updateStats(id, character, { errors: 1 });
+                restartScene();
+              }}
+            />
+          </div>
+        )}
+
+        {/* Perfect-mode "restarting" feedback */}
+        {phase === "restarted" && (
+          <div onClick={(e) => e.stopPropagation()} className="cursor-auto">
+            <RestartedCard />
+          </div>
+        )}
+
         {/* Subtle hint at the bottom when tapping advances */}
-        {(phase === "speaking" || (phase === "waiting" && (!sttAvailable || noSTTRevealed))) && (
+        {(phase === "speaking" ||
+          (phase === "waiting" &&
+            (!sttAvailable || noSTTRevealed))) && (
           <p className="text-center text-xs text-surface-500/70 mt-auto pointer-events-none">
             Touchez l&apos;écran pour continuer
           </p>
@@ -526,8 +618,11 @@ function CurrentLineCard({
   onReplay: () => void;
   onManualAdvance?: () => void;
 }) {
-  // Blur the text when it's the user's turn and hasn't been revealed yet
-  const textBlurred = isUserLine && !hintShown && !noSTTRevealed;
+  // Blur the text when it's the user's turn and hasn't been revealed yet.
+  // In the "review" phase (Perfect mode), always show the text so the user
+  // can compare what they said with what was expected.
+  const textBlurred =
+    isUserLine && !hintShown && !noSTTRevealed && phase !== "review";
   const isSpeaking = phase === "speaking";
   const isSuccess = phase === "success";
 
@@ -783,6 +878,64 @@ function HintCard({
           Continuer →
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ReviewCard({
+  onSuccess,
+  onFail,
+}: {
+  onSuccess: () => void;
+  onFail: () => void;
+}) {
+  return (
+    <div
+      className="rounded-2xl bg-gradient-to-br from-amber-500/10 to-surface-200 border border-amber-500/25 p-4 space-y-3"
+      style={{ animation: "var(--animate-pop)" }}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-xl">✨</span>
+        <p className="text-amber-300 text-sm font-semibold">
+          L&apos;avez-vous dit correctement ?
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={onFail}
+          className="flex items-center justify-center gap-1.5 h-12 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 font-semibold text-sm transition-all active:scale-95"
+        >
+          <span className="text-lg">✗</span>
+          Raté
+        </button>
+        <button
+          onClick={onSuccess}
+          className="flex items-center justify-center gap-1.5 h-12 rounded-xl bg-parrot-500 hover:bg-parrot-400 text-white shadow-lg shadow-parrot-500/20 font-semibold text-sm transition-all active:scale-95"
+        >
+          <span className="text-lg">✓</span>
+          Réussi
+        </button>
+      </div>
+      <p className="text-xs text-surface-500 text-center leading-relaxed">
+        En cas d&apos;échec, la scène reprend du début.
+      </p>
+    </div>
+  );
+}
+
+function RestartedCard() {
+  return (
+    <div
+      className="rounded-2xl bg-red-500/10 border border-red-500/25 p-6 text-center space-y-2"
+      style={{ animation: "var(--animate-pop)" }}
+    >
+      <div className="text-4xl">🔁</div>
+      <p className="text-red-300 text-sm font-semibold">
+        On reprend du début
+      </p>
+      <p className="text-xs text-surface-600">
+        Concentration, vous pouvez le faire !
+      </p>
     </div>
   );
 }
